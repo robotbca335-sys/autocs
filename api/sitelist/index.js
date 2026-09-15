@@ -1,6 +1,9 @@
 const { fetchSites } = require('../../lib/supabase');
+const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
 
-module.exports = async (req, res) => {
+const bucket = createTokenBucket({ windowMs: 60000, max: 180 });
+
+module.exports = wrapWithRateLimit(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -16,4 +19,4 @@ module.exports = async (req, res) => {
       sites: [{ site_id: 'bandar80', label: 'BANDAR80' }]
     });
   }
-};
+}, bucket);

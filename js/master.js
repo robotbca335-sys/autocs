@@ -687,23 +687,23 @@ async function testPuppeteer() {
 // --- Google OAuth (web flow via Supabase) ---
 async function loadAccountInfo() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/me`);
+    const res = await fetch(`${API_BASE}/api/auth?action=me`);
     const data = await res.json();
+    const badge = $('accountBadge');
+    const btnLogout = $('btnGoogleLogout');
     if (data.ok && data.email) {
-      $('accountBadge').textContent = `Login: ${data.email}`;
-      $('accountBadge').className = 'status-badge active';
-      $('btnGoogleLogout').style.display = '';
+      if (badge) { badge.textContent = `Login: ${data.email}`; badge.className = 'status-badge active'; }
+      if (btnLogout) btnLogout.style.display = '';
     } else {
-      $('accountBadge').textContent = 'Belum login';
-      $('accountBadge').className = 'status-badge';
-      $('btnGoogleLogout').style.display = 'none';
+      if (badge) { badge.textContent = 'Belum login'; badge.className = 'status-badge'; }
+      if (btnLogout) btnLogout.style.display = 'none';
     }
   } catch(_) {}
 }
 
 async function googleLogin() {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/login`);
+    const res = await fetch(`${API_BASE}/api/auth?action=login`);
     const data = await res.json();
     if (data.url) window.location.href = data.url;
     else addPipelineLog('Gagal membuat login URL', 'error');
@@ -712,7 +712,7 @@ async function googleLogin() {
 
 async function googleLogout() {
   try {
-    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+    await fetch(`${API_BASE}/api/auth?action=logout`);
     loadAccountInfo();
     addPipelineLog('Logout berhasil', 'ok');
   } catch(e) { addPipelineLog('Logout error: ' + e.message, 'error'); }

@@ -1,6 +1,8 @@
 const { fetchNextPipelineClaim, updateClaim, addLog, fetchAllClaims, fetchClaimByCode, fetchClaimById } = require('../../lib/supabase');
 const { sendAlert } = require('../../services/alert');
 const { verifyClaimAuto, verifyClaimManual, submitBonusTicket, checkBonusStatus, buildVerifyFields, sleep } = require('../../services/pipeline');
+const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
+const bucket = createTokenBucket({ windowMs: 60000, max: 150 });
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -52,8 +54,11 @@ async function runOneTick(manual = null) {
   return { ok: true, claim: updated, result };
 }
 
-module.exports = async (req, res) => {
+module.exports = wrapWithRateLimit(async (req, res) => {
   cors(res);
+  const rl = require('../../lib/rate-limit');
+  const guard = rl.globalRpsLimiter.hit(req, res);
+  if (guard.limited) return;
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ ok: false, message: 'Method not allowed' });
 
@@ -155,4 +160,4 @@ module.exports = async (req, res) => {
     console.error('Process error:', e);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
-};
+}, bucket);

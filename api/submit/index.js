@@ -1,10 +1,12 @@
 const { insertClaim, countTodayClaims, fetchClaimByCode } = require('../../lib/supabase');
 const { validateClaimInput, isDuplicateCode, hasExcessiveRepeat } = require('../../services/bet-verify');
 const { sendAlert } = require('../../services/alert');
+const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
 
 const DAILY_LIMIT = parseInt(process.env.CLAIM_DAILY_LIMIT || '2');
+const bucket = createTokenBucket({ windowMs: 60000, max: 100 });
 
-module.exports = async (req, res) => {
+module.exports = wrapWithRateLimit(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -78,4 +80,4 @@ module.exports = async (req, res) => {
     }
     return res.status(500).json({ ok: false, message: 'Gagal mengirim klaim. Coba lagi.', code: 'SERVER_ERROR' });
   }
-};
+}, bucket);

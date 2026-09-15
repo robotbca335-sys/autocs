@@ -1,4 +1,7 @@
 const { getSetting, setSetting, addLog } = require('../../lib/supabase');
+const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
+
+const bucket = createTokenBucket({ windowMs: 60000, max: 90 });
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,8 +15,11 @@ function maskToken(token) {
   return token.slice(0, 4) + '…' + token.slice(-4);
 }
 
-module.exports = async (req, res) => {
+module.exports = wrapWithRateLimit(async (req, res) => {
   cors(res);
+  const rl = require('../../lib/rate-limit');
+  const guard = rl.globalRpsLimiter.hit(req, res);
+  if (guard.limited) return;
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
@@ -99,4 +105,4 @@ module.exports = async (req, res) => {
     console.error('Settings error:', e);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
-};
+}, bucket);

@@ -2,6 +2,7 @@ const { getSetting, getStats, fetchNextPipelineClaim } = require('../../lib/supa
 const { verifyClaimAuto, buildVerifyFields } = require('../../services/pipeline');
 const { updateClaim, addLog } = require('../../lib/supabase');
 const { sendAlert } = require('../../services/alert');
+const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -44,7 +45,9 @@ async function tick() {
   return { ok: true, auto: run, claim: updated, result };
 }
 
-module.exports = async (req, res) => {
+const bucket = createTokenBucket({ windowMs: 60000, max: 120 });
+
+module.exports = wrapWithRateLimit(async (req, res) => {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ ok: false, message: 'Method not allowed' });
@@ -67,4 +70,4 @@ module.exports = async (req, res) => {
     console.error('Auto error:', e);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
-};
+}, bucket);

@@ -27,7 +27,6 @@
   ],
   "rewrites": [
     { "source": "/master", "destination": "/master/index.html" },
-    { "source": "/master/", "destination": "/master/index.html" },
-    { "source": "/api/auth/:path*", "destination": "/api/auth/index.js" }
+    { "source": "/master/", "destination": "/master/index.html" }
   ]
 }
