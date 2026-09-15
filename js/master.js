@@ -17,6 +17,7 @@ let settings = {
   betMax: 10000000,
   processingInterval: 60
 };
+let pipelinePollInterval = null;
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initClaimsTab();
   initProcessTab();
   initVerifyTab();
+  initPipelineTab();
   initMonitorTab();
   initLogsTab();
   initSettingsTab();
@@ -72,7 +74,7 @@ function switchTab(tab) {
 }
 
 function getTabTitle(tab) {
-  const titles = { dashboard:'Dashboard', claims:'Claims Management', process:'Auto Processing', verify:'Bet Verification', monitor:'Live Monitor', logs:'Activity Logs', settings:'Settings' };
+  const titles = { dashboard:'Dashboard', claims:'Claims Management', process:'Auto Processing', verify:'Bet Verification', pipeline:'Auto Pipeline', monitor:'Live Monitor', logs:'Activity Logs', settings:'Settings' };
   return titles[tab] || tab;
 }
 
@@ -238,10 +240,16 @@ async function viewClaim(id) {
           <div class="detail-item"><label>Status</label><span class="tag ${getStatusClass(r.status)}">${esc(r.status)}</span></div>
           <div class="detail-item"><label>User ID</label><span>${esc(r.user_id)}</span></div>
           <div class="detail-item"><label>Kode Tiket</label><span class="code-cell">${esc(r.kode_tiket)}</span></div>
-          <div class="detail-item"><label>Bet</label><span>Rp ${Number(r.betting).toLocaleString('id-ID')}</span></div>
-          <div class="detail-item"><label>Scatter</label><span>x${r.scatter}</span></div>
+          <div class="detail-item"><label>Bet (klaim)</label><span>Rp ${Number(r.betting).toLocaleString('id-ID')}</span></div>
+          <div class="detail-item"><label>Bet (aktual)</label><span>${r.betting_actual != null ? 'Rp ' + Number(r.betting_actual).toLocaleString('id-ID') : '-'}</span></div>
+          <div class="detail-item"><label>Scatter (klaim)</label><span>x${r.scatter}</span></div>
+          <div class="detail-item"><label>Scatter (aktual)</label><span>${r.scatter_actual != null ? 'x' + r.scatter_actual : '-'}</span></div>
+          <div class="detail-item"><label>Hadiah DB</label><span>${r.hadiah_expected != null ? 'Rp ' + Number(r.hadiah_expected).toLocaleString('id-ID') : '-'}</span></div>
+          <div class="detail-item"><label>Hadiah (aktual)</label><span>${r.hadiah_actual != null ? 'Rp ' + Number(r.hadiah_actual).toLocaleString('id-ID') : '-'}</span></div>
+          <div class="detail-item"><label>Reject Reason</label><span>${esc(r.reject_reason || '-')}</span></div>
           <div class="detail-item"><label>Site</label><span>${esc(r.site)}</span></div>
           <div class="detail-item"><label>Detail</label><span>${esc(r.detail || '-')}</span></div>
+          <div class="detail-item"><label>Checked</label><span>${fmtTime(r.checked_at)}</span></div>
           <div class="detail-item"><label>Created</label><span>${fmtTime(r.created_at)}</span></div>
           <div class="detail-item"><label>Updated</label><span>${fmtTime(r.updated_at)}</span></div>
         </div>
@@ -448,6 +456,341 @@ async function verifyBet() {
   }
 }
 
+// ===== PIPELINE TAB =====
+function initPipelineTab() {
+  $('pipelineAutoToggle').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    await setAutoMode(enabled);
+    addPipelineLog(`Auto-mode ${enabled ? 'ON' : 'OFF'}`, enabled ? 'ok' : '');
+  });
+  $('btnSaveHistory').addEventListener('click', saveHistoryConfig);
+  $('btnClearToken').addEventListener('click', clearHistoryToken);
+  $('btnManualCheck').addEventListener('click', manualCheck);
+  $('btnPlTick').addEventListener('click', tickPipeline);
+  $('btnPlRunAll').addEventListener('click', runPipelineAll);
+  $('btnSaveAdmin').addEventListener('click', saveAdminConfig);
+  $('plEngineMode').addEventListener('change', onEngineModeChange);
+  $('btnBonusSubmit').addEventListener('click', bonusSubmit);
+  $('btnBonusStatus').addEventListener('click', bonusStatus);
+  $('btnTestPuppeteer').addEventListener('click', testPuppeteer);
+  $('btnGoogleLogin').addEventListener('click', googleLogin);
+  $('btnGoogleLogout').addEventListener('click', googleLogout);
+  $('plCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') manualCheck(); });
+  onEngineModeChange();
+  loadPipelineStatus();
+  loadAdminConfig();
+  loadAccountInfo();
+}
+
+async function loadPipelineStatus() {
+  try {
+    const sres = await fetch(`${API_BASE}/api/settings`);
+    const sdata = await sres.json();
+    if (sdata.ok && sdata.settings) {
+      const hist = sdata.settings.history;
+      if (hist) {
+        $('plHost').value = hist.host || '';
+        $('plGameId').value = hist.gameId || '';
+        $('plExecutor').value = hist.executor || '';
+        $('plToken').placeholder = hist.token_masked ? `Token tersimpan: ${hist.token_masked}` : 'Paste token session (tersimpan terenkripsi di DB)';
+      }
+      const auto = sdata.settings.auto;
+      if (auto) {
+        $('pipelineAutoToggle').checked = !!auto.enabled;
+        $('autoStatus').textContent = auto.enabled ? 'Auto: ON' : 'Auto: OFF';
+        $('autoStatus').className = 'status-badge ' + (auto.enabled ? 'active' : '');
+        if (auto.last_run) addPipelineLog(`Last run: ${fmtTime(auto.last_run)}`);
+      }
+    }
+    const ares = await fetch(`${API_BASE}/api/auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'status' })
+    });
+    const adata = await ares.json();
+    if (adata.ok && adata.stats) {
+      $('plQueue').textContent = adata.stats.queue ?? 0;
+      $('plActive').textContent = adata.stats.active ?? 0;
+      $('plDone').textContent = adata.stats.approved ?? 0;
+      $('plFail').textContent = adata.stats.failed ?? 0;
+    }
+  } catch(e) { addPipelineLog('Gagal muat status pipeline', 'error'); }
+}
+
+async function setAutoMode(enabled) {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'auto', value: { enabled, interval: settings.processingInterval } })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    addPipelineLog(`Auto-mode ${enabled ? 'ON' : 'OFF'} (interval ${settings.processingInterval}s)`, enabled ? 'ok' : '');
+    loadPipelineStatus();
+  } else {
+    addPipelineLog('Gagal ubah auto-mode', 'error');
+  }
+}
+
+async function saveHistoryConfig() {
+  const payload = {
+    host: $('plHost').value.trim(),
+    token: $('plToken').value.trim(),
+    gameId: $('plGameId').value.trim(),
+    executor: $('plExecutor').value.trim()
+  };
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'history', value: payload })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    addPipelineLog('Konfigurasi history API tersimpan', 'ok');
+    $('plToken').value = '';
+    loadPipelineStatus();
+  } else {
+    addPipelineLog('Gagal simpan konfigurasi', 'error');
+  }
+}
+
+async function clearHistoryToken() {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'history', value: { token: 'CLEAR' } })
+  });
+  const data = await res.json();
+  if (data.ok) addPipelineLog('Token dihapus', 'ok');
+  else addPipelineLog('Gagal hapus token', 'error');
+  loadPipelineStatus();
+}
+
+// --- Engine mode selector ---
+let _prevEngineMode = '';
+function onEngineModeChange() {
+  const mode = $('plEngineMode').value;
+  const ppCard = $('puppeteerStatus');
+  if (ppCard) ppCard.style.display = (mode === 'puppeteer') ? '' : 'none';
+  if (_prevEngineMode && _prevEngineMode !== mode) {
+    addPipelineLog(`Engine mode: ${mode}` + (mode === 'puppeteer' ? ' (butuh Chrome + session login tersimpan)' : ''), 'warn');
+  }
+  _prevEngineMode = mode;
+}
+
+// --- Admin config load/save ---
+async function loadAdminConfig() {
+  try {
+    const res = await fetch(`${API_BASE}/api/settings`);
+    const data = await res.json();
+    const admin = data.ok && data.settings && data.settings.admin;
+    if (!admin) return;
+    $('plAdminUrl').value = admin.adminUrl || '';
+    $('plPkid').value = admin.pkid || '';
+    $('plRole').value = admin.role || '';
+    $('plSuid').value = admin.suid || '';
+    $('plUserAgent').value = admin.userAgent || '';
+    $('plUserid').value = admin.userid || '';
+    $('plAccessToken').placeholder = admin.token_masked ? `Token: ${admin.token_masked}` : 'Paste X-Access-Token dari admin panel';
+    $('plHistoryToken').placeholder = admin.historyToken_masked ? `History token: ${admin.historyToken_masked}` : 'Token t= untuk GetBetHistory';
+  } catch(_) {}
+}
+
+async function saveAdminConfig() {
+  const payload = {
+    adminUrl: $('plAdminUrl').value.trim(),
+    token: $('plAccessToken').value.trim(),
+    pkid: $('plPkid').value.trim(),
+    role: $('plRole').value.trim(),
+    suid: $('plSuid').value.trim(),
+    userAgent: $('plUserAgent').value.trim(),
+    userid: $('plUserid').value.trim(),
+    historyToken: $('plHistoryToken').value.trim()
+  };
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'admin', value: payload })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    addPipelineLog('Admin config tersimpan', 'ok');
+    $('plAccessToken').value = '';
+    $('plHistoryToken').value = '';
+    loadAdminConfig();
+  } else {
+    addPipelineLog('Gagal simpan admin config', 'error');
+  }
+}
+
+// --- Bonus submit / status via Puppeteer ---
+async function bonusSubmit() {
+  const kode_tiket = $('plBonusCode').value.trim();
+  const betting = $('plBonusBet').value;
+  const scatter = $('plBonusSc').value;
+  if (!kode_tiket) return addPipelineLog('Masukkan kode tiket bonus', 'warn');
+  if (!betting || !scatter) return addPipelineLog('Isi bet dan scatter bonus', 'warn');
+  addPipelineLog(`Submit bonus ${kode_tiket} via Puppeteer...`);
+  try {
+    const res = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'bonus_submit', kode_tiket, betting, scatter,
+        chromePath: $('ppChromePath') ? $('ppChromePath').value : undefined
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      addPipelineLog(`Bonus [${kode_tiket}] => ${data.claim && data.claim.status} | ${data.result && data.result.message}`, data.claim && data.claim.status === 'INPUT_OK' ? 'ok' : 'error');
+    } else {
+      addPipelineLog('Bonus submit gagal: ' + (data.message || ''), 'error');
+    }
+  } catch(e) { addPipelineLog('Bonus submit error: ' + e.message, 'error'); }
+}
+
+async function bonusStatus() {
+  const kode_tiket = $('plBonusCode').value.trim() || $('plCode').value.trim();
+  if (!kode_tiket) return addPipelineLog('Masukkan kode tiket untuk cek status', 'warn');
+  addPipelineLog(`Cek status ${kode_tiket} di bonussmb /history...`);
+  try {
+    const res = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'bonus_status', kode_tiket, chromePath: $('ppChromePath') ? $('ppChromePath').value : undefined })
+    });
+    const data = await res.json();
+    if (data.ok && data.status) {
+      addPipelineLog(`Status ${kode_tiket}: ${data.status.status || '?'} | col9=${data.status.col9} col10=${data.status.col10}`, data.status.status === 'APPROVED' ? 'ok' : data.status.status === 'REJECTED' ? 'warn' : '');
+    } else {
+      addPipelineLog('Cek status gagal: ' + (data.message || ''), 'error');
+    }
+  } catch(e) { addPipelineLog('Status error: ' + e.message, 'error'); }
+}
+
+async function testPuppeteer() {
+  const path = $('ppChromePath').value.trim();
+  addPipelineLog(`Test browser: ${path || 'default'}...`);
+  try {
+    const res = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'test_puppeteer', chromePath: path })
+    });
+    const data = await res.json();
+    addPipelineLog(data.message || 'Test selesai', data.ok ? 'ok' : 'error');
+    $('ppState').textContent = data.ok ? 'terhubung' : 'gagal';
+    $('ppState').style.background = data.ok ? 'var(--success-color,#2e9e5b)' : 'var(--danger-color,#e5484d)';
+  } catch(e) { addPipelineLog('Test puppeteer error: ' + e.message, 'error'); }
+}
+
+// --- Google OAuth (web flow via Supabase) ---
+async function loadAccountInfo() {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`);
+    const data = await res.json();
+    if (data.ok && data.email) {
+      $('accountBadge').textContent = `Login: ${data.email}`;
+      $('accountBadge').className = 'status-badge active';
+      $('btnGoogleLogout').style.display = '';
+    } else {
+      $('accountBadge').textContent = 'Belum login';
+      $('accountBadge').className = 'status-badge';
+      $('btnGoogleLogout').style.display = 'none';
+    }
+  } catch(_) {}
+}
+
+async function googleLogin() {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`);
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
+    else addPipelineLog('Gagal membuat login URL', 'error');
+  } catch(e) { addPipelineLog('Google login error (mungkin perlu setup OAuth): ' + e.message, 'error'); }
+}
+
+async function googleLogout() {
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+    loadAccountInfo();
+    addPipelineLog('Logout berhasil', 'ok');
+  } catch(e) { addPipelineLog('Logout error: ' + e.message, 'error'); }
+}
+
+async function tickPipeline() {
+  addPipelineLog('Tick pipeline dimulai...');
+  try {
+    const res = await fetch(`${API_BASE}/api/auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'tick' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.skipped) addPipelineLog(data.message || 'Auto-mode off / antrian kosong', 'warn');
+      else {
+        const c = data.claim;
+        addPipelineLog(`[${c.kode_tiket}] ${data.result.status} (${data.result.mode})${data.result.reason ? ': ' + data.result.reason : ''}`, data.result.status === 'SESUAI' ? 'ok' : data.result.status === 'ERROR' ? 'error' : 'warn');
+      }
+      loadPipelineStatus();
+      loadDashboard();
+    }
+  } catch(e) { addPipelineLog('Tick error: ' + e.message, 'error'); }
+}
+
+async function runPipelineAll() {
+  addPipelineLog('Proses semua antrian...');
+  try {
+    const res = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'all' })
+    });
+    const data = await res.json();
+    addPipelineLog(`Selesai proses ${data.processed || 0} claim`, 'ok');
+    loadPipelineStatus();
+    loadDashboard();
+  } catch(e) { addPipelineLog('Batch error: ' + e.message, 'error'); }
+}
+
+async function manualCheck() {
+  const kode_tiket = $('plCode').value.trim();
+  if (!kode_tiket) return addPipelineLog('Masukkan kode tiket', 'warn');
+  const bet_actual = $('plBetActual').value;
+  const scatter_actual = $('plScatterActual').value;
+  if (!bet_actual && !scatter_actual) return addPipelineLog('Isi bet / scatter aktual', 'warn');
+  const hadiah_actual = $('plHadiahActual').value;
+
+  addPipelineLog(`Cek manual ${kode_tiket} ...`);
+  try {
+    const res = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'check', kode_tiket, bet_actual, scatter_actual, hadiah_actual })
+    });
+    const data = await res.json();
+    if (data.ok && data.claim) {
+      const c = data.claim;
+      const msg = `Manual [${c.kode_tiket}] -> ${c.status}${c.reject_reason ? ': ' + c.reject_reason : ''}`;
+      addPipelineLog(msg, c.status === 'SESUAI' ? 'ok' : c.status === 'TIDAK_SESUAI' ? 'warn' : 'error');
+      loadPipelineStatus();
+      loadDashboard();
+    } else {
+      addPipelineLog(data.message || 'Gagal cek manual', 'error');
+    }
+  } catch(e) { addPipelineLog('Manual check error: ' + e.message, 'error'); }
+}
+
+function addPipelineLog(msg, type='') {
+  const log = $('pipelineLog');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + type;
+  line.innerHTML = `<span class="log-time">${new Date().toLocaleTimeString('id-ID')}</span> ${esc(msg)}`;
+  log.prepend(line);
+  if (log.children.length > 100) log.lastChild.remove();
+}
+
 // ===== MONITOR TAB =====
 function initMonitorTab() {
   $('btnStartMonitor').addEventListener('click', toggleMonitor);
@@ -541,6 +884,18 @@ function loadSettings() {
     $('settBetMax').value = settings.betMax;
     $('settInterval').value = settings.processingInterval;
   }
+  fetch(`${API_BASE}/api/settings`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok && d.settings && d.settings.limits) {
+        const lim = d.settings.limits;
+        try { settings = { ...settings, ...JSON.parse(localStorage.getItem('scatter_settings') || '{}'), dailyLimit: lim.dailyLimit, betMin: lim.betMin, betMax: lim.betMax }; } catch(e) {}
+        $('settDailyLimit').value = lim.dailyLimit;
+        $('settBetMin').value = lim.betMin;
+        $('settBetMax').value = lim.betMax;
+      }
+    })
+    .catch(() => {});
 }
 
 function saveSettings() {
@@ -549,6 +904,11 @@ function saveSettings() {
   settings.betMax = parseInt($('settBetMax').value) || 10000000;
   settings.processingInterval = parseInt($('settInterval').value) || 60;
   localStorage.setItem('scatter_settings', JSON.stringify(settings));
+  fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'limits', value: { dailyLimit: settings.dailyLimit, betMin: settings.betMin, betMax: settings.betMax } })
+  }).catch(() => {});
   showToast('Settings saved', 'ok');
 }
 
@@ -559,6 +919,7 @@ function loadTabData(tab) {
     case 'claims': loadClaims(); break;
     case 'logs': loadLogs(); break;
     case 'process': loadProcessStats(); break;
+    case 'pipeline': loadPipelineStatus(); break;
     case 'monitor': break;
     case 'verify': break;
     case 'settings': loadSettings(); break;

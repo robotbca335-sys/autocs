@@ -9,7 +9,8 @@
     "deploy:master": "vercel --prod --name master-app"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "puppeteer-core": "^25.11.0"
   },
   "devDependencies": {
     "vercel": "^37.0.0"

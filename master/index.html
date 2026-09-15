@@ -960,6 +960,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         <span>Verify</span>
       </a>
+      <a class="nav-item" data-tab="pipeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><polyline points="5 9 2 12 5 15"/><polyline points="19 9 22 12 19 15"/></svg>
+        <span>Pipeline</span>
+      </a>
       <a class="nav-item" data-tab="monitor">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         <span>Monitor</span>
@@ -1074,6 +1078,162 @@
       <div class="pagination" id="claimsPagination"></div>
     </section>
 
+    <!-- Tab: Pipeline -->
+    <section class="tab-panel" id="tab-pipeline">
+      <div class="process-header">
+        <h2>Auto Pipeline - Cek Scatter</h2>
+        <div class="toggle-switch">
+          <input type="checkbox" id="pipelineAutoToggle">
+          <label for="pipelineAutoToggle"></label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:16px;max-width:420px">
+        <label>Engine Mode</label>
+        <select id="plEngineMode">
+          <option value="api">REST API (admin + history)</option>
+          <option value="puppeteer">Puppeteer (DOM browser)</option>
+          <option value="manual">Manual (input admin)</option>
+        </select>
+      </div>
+      <div id="puppeteerStatus" style="display:none;margin-bottom:16px" class="dash-card">
+        <h3>Puppeteer Status</h3>
+        <div class="form-group" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="status-badge" id="ppState" style="background:#333">disconnected</span>
+          <input type="text" id="ppChromePath" placeholder="Path Chrome (opsional)" value="C:\Program Files\Google\Chrome\Application\chrome.exe" style="flex:2;min-width:240px">
+          <button class="btn-sm" id="btnTestPuppeteer">Test Browser</button>
+        </div>
+      </div>
+      <div class="process-stats">
+        <div class="pstat">
+          <span class="pstat-label">Queue</span>
+          <span class="pstat-value" id="plQueue">0</span>
+        </div>
+        <div class="pstat">
+          <span class="pstat-label">Verifying</span>
+          <span class="pstat-value" id="plActive">0</span>
+        </div>
+        <div class="pstat">
+          <span class="pstat-label">Sesuai</span>
+          <span class="pstat-value" id="plDone">0</span>
+        </div>
+        <div class="pstat">
+          <span class="pstat-label">Gagal</span>
+          <span class="pstat-value" id="plFail">0</span>
+        </div>
+      </div>
+      <div class="dash-card" style="margin-bottom:18px">
+        <h3>Admin Panel idrbo (X-Access-Token + agent headers)</h3>
+        <div class="form-group">
+          <label>Admin URL</label>
+          <input type="text" id="plAdminUrl" placeholder="ag-bandar80.idrbo2.com">
+        </div>
+        <div class="form-group">
+          <label>X-Access-Token</label>
+          <input type="password" id="plAccessToken" placeholder="Paste X-Access-Token dari admin panel">
+        </div>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>X-Agent-Pkid</label>
+            <input type="text" id="plPkid" placeholder="">
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>X-Agent-Role</label>
+            <input type="text" id="plRole" placeholder="">
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>X-Agent-Suid</label>
+            <input type="text" id="plSuid" placeholder="">
+          </div>
+        </div>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>X-Agent-User</label>
+            <input type="text" id="plUserAgent" placeholder="">
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>X-Agent-UserId</label>
+            <input type="text" id="plUserid" placeholder="">
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>History Token</label>
+            <input type="password" id="plHistoryToken" placeholder="Token t= untuk GetBetHistory">
+          </div>
+        </div>
+        <button class="btn-gold" id="btnSaveAdmin" style="margin-bottom:12px">Simpan Admin Config</button>
+      </div>
+      <div class="dash-card" style="margin-bottom:18px">
+        <h3>History API (token session bonussmb)</h3>
+        <div class="form-group">
+          <label>Host</label>
+          <input type="text" id="plHost" placeholder="public-api.zmcyu9ypy.com">
+        </div>
+        <div class="form-group">
+          <label>Token</label>
+          <input type="password" id="plToken" placeholder="Paste token session (tersimpan terenkripsi di DB)">
+        </div>
+        <div class="filter-group">
+          <div class="form-group" style="flex:1">
+            <label>Game ID</label>
+            <input type="text" id="plGameId" placeholder="74">
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Executor</label>
+            <input type="text" id="plExecutor" placeholder="Nama executor">
+          </div>
+        </div>
+        <button class="btn-gold" id="btnSaveHistory" style="margin-bottom:12px">Save History Config</button>
+        <button class="btn-outline danger" id="btnClearToken">Clear Token</button>
+      </div>
+      <div class="dash-card" style="margin-bottom:18px">
+        <h3>Manual Check (tanpa token - input data aktual)</h3>
+        <div class="form-group">
+          <label>Kode Tiket</label>
+          <input type="text" id="plCode" placeholder="Kode tiket klaim">
+        </div>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>Bet Aktual</label>
+            <input type="number" id="plBetActual" placeholder="cth 5000">
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px">
+            <label>Scatter</label>
+            <input type="number" id="plScatterActual" placeholder="3/4/5">
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label>Hadiah</label>
+            <input type="number" id="plHadiahActual" placeholder="cth 35000">
+          </div>
+        </div>
+        <button class="btn-outline" id="btnManualCheck">Jalankan Cek Manual</button>
+      </div>
+      <div class="dash-card" style="margin-bottom:18px">
+        <h3>Bonus Submit / Cek Status (Puppeteer → bonussmb.com)</h3>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:140px">
+            <label>Kode Tiket Bonus</label>
+            <input type="text" id="plBonusCode" placeholder="Kode tiket yang sudah SESUAI">
+          </div>
+          <div class="form-group" style="flex:1;min-width:100px">
+            <label>Bet</label>
+            <input type="number" id="plBonusBet" placeholder="cth 5000">
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px">
+            <label>Scatter</label>
+            <input type="number" id="plBonusSc" placeholder="3/4/5">
+          </div>
+        </div>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <button class="btn-gold" id="btnBonusSubmit" style="flex:1;min-width:140px">Submit ke bonussmb</button>
+          <button class="btn-outline" id="btnBonusStatus" style="flex:1;min-width:140px">Cek Status di /history</button>
+        </div>
+      </div>
+      <div class="process-actions" style="margin-top:0">
+        <button class="btn-gold" id="btnPlTick">Tick Sekarang</button>
+        <button class="btn-outline" id="btnPlRunAll">Proses Semua Antrian</button>
+      </div>
+      <div class="process-log" id="pipelineLog" style="height:320px;margin-top:18px"></div>
+    </section>
+
     <!-- Tab: Process -->
     <section class="tab-panel" id="tab-process">
       <div class="process-header">
@@ -1141,6 +1301,17 @@
 
     <!-- Tab: Settings -->
     <section class="tab-panel" id="tab-settings">
+      <div class="settings-card" style="margin-bottom:16px">
+        <h2>Account & Session</h2>
+        <div id="accountInfo" style="margin-bottom:12px">
+          <span class="status-badge" id="accountBadge">Belum login</span>
+        </div>
+        <div class="filter-group" style="gap:10px;flex-wrap:wrap">
+          <button class="btn-gold" id="btnGoogleLogin" style="flex:1;min-width:160px">Login dengan Google</button>
+          <button class="btn-outline danger" id="btnGoogleLogout" style="flex:1;min-width:120px;display:none">Logout</button>
+        </div>
+        <p class="empty-text" style="margin-top:10px;font-size:12px">Login Google menautkan browser Anda. Header admin (X-Access-Token) & history token akan dipakai untuk proses pipeline otomatis.</p>
+      </div>
       <div class="settings-card">
         <h2>System Settings</h2>
         <div class="form-group">
