@@ -1,0 +1,17 @@
+{
+  "name": "scatter-claim-system",
+  "version": "2.0.0",
+  "description": "Web-based Scatter Claim System - Replaces Chrome Extensions",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "deploy:claim": "vercel --prod --name claim-app",
+    "deploy:master": "vercel --prod --name master-app"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "vercel": "^37.0.0"
+  }
+}
