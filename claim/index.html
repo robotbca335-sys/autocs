@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klaim Bonus Scatter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/shared.css">
+</head>
+<body>
+  <div class="page-wrap">
+
+    <header class="hero">
+      <div class="hero__crest">
+        <svg viewBox="0 0 80 90" class="crest-svg">
+          <defs>
+            <linearGradient id="gGold" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#f5d97a"/>
+              <stop offset="50%" stop-color="#d8b45a"/>
+              <stop offset="100%" stop-color="#a8872e"/>
+            </linearGradient>
+          </defs>
+          <path d="M40 4 L72 22 L72 52 C72 68 58 82 40 88 C22 82 8 68 8 52 L8 22 Z" fill="none" stroke="url(#gGold)" stroke-width="2.5"/>
+          <path d="M40 18 L28 38 H36 V58 L52 34 H44 Z" fill="url(#gGold)" opacity=".85"/>
+          <circle cx="40" cy="46" r="4" fill="url(#gGold)" opacity=".5"/>
+        </svg>
+      </div>
+      <h1 class="hero__title">KLAIM BONUS SCATTER</h1>
+      <p class="hero__sub">Verifikasi scatter &amp; klaim bonus kamu</p>
+    </header>
+
+    <main class="card-stack">
+
+      <!-- STAGE: FORM -->
+      <section id="stage-form" class="stage active glass-card">
+        <h2 class="card-title">Kirim Klaim</h2>
+
+        <div class="field">
+          <label for="f_site">Situs Tujuan</label>
+          <select id="f_site">
+            <option value="" disabled selected>Memuat situs...</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="f_user">User ID</label>
+          <input type="text" id="f_user" placeholder="contoh: joker123" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="f_tx">Kode Tiket</label>
+          <input type="text" id="f_tx" placeholder="masukkan kode tiket" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="f_bet">Nominal Bet</label>
+          <div class="input-group">
+            <span class="input-prefix">Rp</span>
+            <input type="text" id="f_bet" inputmode="numeric" placeholder="0">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Jumlah Scatter</label>
+          <div id="scSel" class="scatter-sel">
+            <button type="button" data-v="3">3</button>
+            <button type="button" data-v="4">4</button>
+            <button type="button" data-v="5">5</button>
+          </div>
+        </div>
+
+        <!-- Honeypot -->
+        <div class="hp" aria-hidden="true">
+          <label for="f_bot">Website</label>
+          <input type="text" id="f_bot" tabindex="-1" autocomplete="off">
+          <label for="f_company">Company</label>
+          <input type="text" id="f_company" tabindex="-1" autocomplete="off">
+        </div>
+
+        <button id="btnSubmit" class="btn btn--primary btn--full">
+          <span class="btn__label">KIRIM KLAIM</span>
+        </button>
+
+        <button id="goTrack" class="btn btn--ghost btn--sm btn--full mt12">
+          Lacak Status Klaim
+        </button>
+      </section>
+
+      <!-- STAGE: TRACK -->
+      <section id="stage-track" class="stage glass-card">
+        <h2 class="card-title">Lacak Klaim</h2>
+
+        <div class="field">
+          <label for="t_user">User ID</label>
+          <input type="text" id="t_user" placeholder="masukkan user id" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+
+        <button id="btnTrack" class="btn btn--primary btn--full">
+          <span class="btn__label">CARI KLAIM</span>
+        </button>
+
+        <div id="trackRows" class="track-rows mt16"></div>
+
+        <button id="goForm" class="btn btn--ghost btn--sm btn--full mt12">
+          Kembali ke Form
+        </button>
+      </section>
+
+    </main>
+
+    <footer class="foot">
+      <span>&copy; 2026 Scatter Bonus System</span>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="../js/claim.js"></script>
+</body>
+</html>

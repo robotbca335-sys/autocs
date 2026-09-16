@@ -1,32 +1,64 @@
 {
-  "version": 2,
-  "public": true,
-  "cleanUrls": true,
-  "trailingSlash": false,
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
-    },
-    {
-      "source": "/css/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    },
-    {
-      "source": "/js/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    }
-  ],
-  "rewrites": [
-    { "source": "/master", "destination": "/master/index.html" },
-    { "source": "/master/", "destination": "/master/index.html" }
-  ]
+    "cleanUrls":  true,
+    "version":  2,
+    "headers":  [
+                    {
+                        "headers":  [
+                                        {
+                                            "key":  "X-Content-Type-Options",
+                                            "value":  "nosniff"
+                                        },
+                                        {
+                                            "key":  "X-Frame-Options",
+                                            "value":  "DENY"
+                                        },
+                                        {
+                                            "key":  "Referrer-Policy",
+                                            "value":  "strict-origin-when-cross-origin"
+                                        }
+                                    ],
+                        "source":  "/(.*)"
+                    },
+                    {
+                        "headers":  [
+                                        {
+                                            "key":  "Cache-Control",
+                                            "value":  "public, max-age=31536000, immutable"
+                                        }
+                                    ],
+                        "source":  "/css/(.*)"
+                    },
+                    {
+                        "headers":  [
+                                        {
+                                            "key":  "Cache-Control",
+                                            "value":  "public, max-age=31536000, immutable"
+                                        }
+                                    ],
+                        "source":  "/js/(.*)"
+                    }
+                ],
+    "rewrites":  [
+                     {
+                         "destination":  "/master/index.html",
+                         "source":  "/master"
+                     },
+                     {
+                         "destination":  "/master/index.html",
+                         "source":  "/master/"
+                     },
+{
+                      "destination":  "/api/auth?action=callback",
+                      "source":  "/api/auth/callback"
+                  },
+                  {
+                      "destination":  "/claim/index.html",
+                      "source":  "/claim"
+                  },
+                  {
+                      "destination":  "/claim/index.html",
+                      "source":  "/claim/"
+                  }
+                 ],
+    "trailingSlash":  false
 }

@@ -162,6 +162,36 @@ function buildVerifyFields(claim, result, attempt = 1) {
   };
 }
 
+// --- PUSH keputusan ke bonussmb (REST, bukan klik DOM) ---
+// SESUAI -> PUT /tiket-claim/:id status 'proccessing' (approve)
+// TIDAK_SESUAI -> PUT /tiket-claim/:id status 'rejected' + alasan
+// Non-blocking: hasil tidak menggagalkan alur utama bila fetch gagal.
+async function pushDecisionToBonus(claim, status, reason) {
+  try {
+    const bonus = await getSetting('bonus');
+    if (!bonus || bonus.autoDecision !== true) return { ok: false, code: 'DISABLED' };
+    const api = require('../lib/bonussmb-api');
+    const list = await api.fetchTickets({ limit: 300 });
+    if (!list.ok) return list;
+    const code = String(claim.kode_tiket || '').trim();
+    const userId = String(claim.user_id || '').trim();
+    const rows = list.rows || [];
+    const hit = rows.find(r =>
+      String(r.ticketCode || r.code || r.kode_tiket || r.ticket_code || '').trim() === code
+    ) || rows.find(r =>
+      String(r.historyCode || r.invoice || r.no || '').replace(/\D/g, '').includes(code.replace(/\D/g, ''))
+    );
+    if (!hit) return { ok: false, code: 'NOT_FOUND', message: 'Tiket tidak ketemu di bonussmb list' };
+    const id = hit.id || hit._id;
+    if (!id) return { ok: false, code: 'NO_ID', message: 'Tiket tanpa id' };
+    const target = status === 'SESUAI' ? 'proccessing' : 'rejected';
+    const r = await api.updateTicketStatus(id, { status: target, reason: status === 'SESUAI' ? '' : (reason || 'Data bet/scatter tidak sesuai') });
+    return r;
+  } catch (e) {
+    return { ok: false, code: 'EXC', message: String(e.message || e) };
+  }
+}
+
 module.exports = {
   verifyClaimAuto,
   verifyClaimManual,
@@ -169,5 +199,6 @@ module.exports = {
   checkBonusStatus,
   buildVerifyFields,
   findRecordForClaim,
+  pushDecisionToBonus,
   sleep
 };

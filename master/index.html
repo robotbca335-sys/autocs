@@ -934,9 +934,96 @@
       .detail-grid { grid-template-columns: 1fr; }
       .monitor-feed { height: 420px; }
     }
+
+    /* ==========================================================
+       LOGIN GATE — wajib tampil penuh menutupi dashboard
+       ========================================================== */
+    .master-gate {
+      position: fixed; inset: 0; z-index: 10000;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+      background: var(--bg, #0d0d0d);
+      background-image: radial-gradient(1000px 480px at 50% -8%, rgba(216, 180, 90, .12), transparent 60%), radial-gradient(600px 420px at 92% 108%, rgba(96, 165, 250, .08), transparent 60%);
+      opacity: 1; visibility: visible;
+      pointer-events: auto;
+      transition: opacity .45s ease, visibility .45s ease;
+    }
+    body.master-authed .master-gate {
+      opacity: 0; visibility: hidden; pointer-events: none;
+    }
+
+    .gate-card {
+      width: 100%; max-width: 380px;
+      background: var(--bg-card, rgba(24, 22, 17, .72));
+      border: 1px solid var(--border, rgba(216, 180, 90, .14));
+      border-radius: var(--radius, 14px);
+      padding: 36px 30px 32px;
+      text-align: center;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .6), 0 0 0 1px rgba(216, 180, 90, .06);
+      animation: rise .55s cubic-bezier(.22, 1, .36, 1) both;
+    }
+
+    .gate-logo {
+      width: 58px; height: 58px; margin: 0 auto 18px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--gold-l, #f5d97a), var(--gold, #d8b45a) 50%, var(--gold-d, #a8872e));
+      color: #1a1408;
+      font-family: var(--font-head, 'Cinzel', serif);
+      font-weight: 900; font-size: 1.7rem;
+      display: grid; place-items: center;
+      box-shadow: 0 8px 30px rgba(216, 180, 90, .35);
+    }
+
+    .gate-title {
+      font-family: var(--font-head, 'Cinzel', serif);
+      font-size: 1.15rem; font-weight: 700;
+      letter-spacing: .12em; color: var(--gold, #d8b45a);
+      margin-bottom: 10px;
+    }
+
+    .gate-sub {
+      font-size: .82rem; line-height: 1.55;
+      color: var(--text-dim, #8a8274);
+      margin-bottom: 26px;
+    }
+
+    .gate-status {
+      margin-top: 18px;
+      font-size: .74rem; letter-spacing: .04em;
+      color: var(--text-dim, #8a8274);
+    }
+    .gate-status.loading { color: var(--gold, #d8b45a); }
+    .gate-status.error { color: var(--red, #f87171); }
   </style>
 </head>
 <body>
+  <!-- ===== LOGIN GATE (wajib login sebelum dashboard muncul) ===== -->
+  <div class="master-gate" id="masterGate">
+    <div class="gate-card">
+      <div class="gate-logo">S</div>
+      <h1 class="gate-title">SCATTER MASTER</h1>
+      <p class="gate-sub">Panel admin dilindungi. Silakan login dengan akun Google untuk melanjutkan.</p>
+      <button class="btn-gold gate-login" id="btnGateGoogle">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M21.35 11.1H12v3.9h5.35c-.5 2.6-2.7 4.2-5.35 4.2-3.2 0-5.8-2.6-5.8-5.8s2.6-5.8 5.8-5.8c1.5 0 2.9.55 3.95 1.45l2.9-2.9C17.5 4.6 14.9 3.5 12 3.5 7.3 3.5 3.5 7.3 3.5 12s3.8 8.5 8.5 8.5c4.4 0 8.2-3.2 8.2-8.6 0-.4 0-.8-.1-1.2z"/></svg>
+        Login dengan Google
+      </button>
+      <p class="gate-status" id="gateStatus">Memeriksa sesi…</p>
+    </div>
+  </div>
+
+  <!-- ===== SENSOR STATUS (nol-tempel, semua domain idrbo otomatis) ===== -->
+  <div id="sensorCard" style="display:none;margin:16px auto;max-width:900px;padding:16px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-weight:700;font-size:15px">Auto Sensor (nol-tempel, semua domain idrbo)</div>
+      <span class="status-badge" id="sensorBadge" style="border-width:1px">Status: cek…</span>
+    </div>
+    <div style="font-size:12.5px;margin-top:8px;color:var(--text-sub)" id="sensorDetail">
+      Belum ada token otomatis terdeteksi.
+    </div>
+  </div>
+
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -1335,6 +1422,61 @@
           <input type="password" id="settAdminPass" placeholder="Enter admin password">
         </div>
         <button class="btn-gold" id="btnSaveSettings">Save Settings</button>
+      <div class="settings-card" style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">
+        <h2>Daftar Domain Otomatis (Auto-Try)</h2>
+        <p class="empty-text" style="margin-bottom:12px">Server akan mencoba daftar domain ini satu per satu saat grab/cek rek — tanpa perlu ubah URL manual. Pisahkan dengan koma.</p>
+        <div class="form-group">
+          <label>Domain idrbo</label>
+          <input type="text" id="idrboDomains" placeholder="idrbo.com, idrbo1.com, idrbo2.com, idrbo3.com, idrbo4.com">
+        </div>
+        <button class="btn-gold" id="btnSaveDomains">Simpan Domain</button>
+        <span class="status-badge" id="idrboDomainsStatus" style="margin-left:8px"></span>
+      </div>
+      <div class="settings-card" style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">
+        <h2>Staf (Akses Master Web)</h2>
+        <p class="empty-text" style="margin-bottom:12px">Email Google yang diizinkan login ke panel ini. Master (pemilik) selalu bisa akses.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="email" id="staffEmailInput" placeholder="email.staf@gmail.com" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <button class="btn-gold" id="btnAddStaff">+ Tambah Staf</button>
+        </div>
+        <div id="staffList"></div>
+      </div>
+      <div class="settings-card" style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">
+        <h2>Bonussmb (Auto Approve/Reject)</h2>
+        <p class="empty-text" style="margin-bottom:12px">Login ke bonussmb.com supaya server bisa approve/reject ticket otomatis via REST. Tidak perlu buka ekstensi/tangani clipboard — setelah login, semua verifikasi selesai langsung dipush.</p>
+        <div id="bonusStatus" style="margin-bottom:12px;font-size:13px;color:#b88d0a"></div>
+        <div id="bonusLoginForm" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <input type="email" id="bonusEmail" placeholder="email@bonussmb.com" style="flex:1;min-width:180px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <input type="password" id="bonusPass" placeholder="password" style="flex:1;min-width:120px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <input type="text" id="bonus2fa" placeholder="Kode 2FA (jika diminta)" style="width:130px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <button class="btn-gold" id="btnBonusLogin">Login</button>
+          <button class="btn-gold" id="btnBonusLogout" style="background:#dc3545;border-color:#bb2d3b">Logout</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="bonusAutoToggle" style="width:16px;height:16px">
+            Auto approve/reject setelah verifikasi
+          </label>
+          <span class="status-badge" id="bonusAutoStatus"></span>
+        </div>
+        <div id="bonusTicketsWrap" style="margin-top:12px">
+          <button class="btn-gold" id="btnBonusList" style="background:#6f42c1;border-color:#5a32a3;margin-bottom:8px">Refresh Ticket (bonussmb)</button>
+          <span class="status-badge" id="bonusListStatus"></span>
+          <div id="bonusTickets" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="settings-card" style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">
+        <h2>IDRBO Accounts</h2>
+        <p class="empty-text" style="margin-bottom:12px">Konfigurasi akun IDRBO untuk login scrapping. Simpan di Supabase lewat /api/settings.</p>
+        <div id="idrboAccounts"></div>
+        <button class="btn-gold" id="btnAddIdrbo" style="margin-top:8px">+ Tambah Akun</button>
+        <button class="btn-gold" id="btnSaveIdrbo" style="margin-top:8px;margin-left:8px">Simpan IDRBO</button>
+        <span class="status-badge" id="idrboStatus" style="margin-left:8px"></span>
+        <button class="btn-gold" id="btnGrabIdrbo" style="margin-top:8px;margin-left:8px;background:#0d6efd;border-color:#0b5ed7">Grab Semua</button>
+        <button class="btn-gold" id="btnCekRekIdrbo" style="margin-top:8px;margin-left:8px;background:#198754;border-color:#146c43">Cek Rek</button>
+        <span class="status-badge" id="idrboGrabBusy" style="margin-left:8px"></span>
+        <div id="idrboGrabResult" style="margin-top:12px"></div>
+      </div>
       </div>
     </section>
   </main>
@@ -1354,7 +1496,6 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script src="/js/shared.js"></script>
   <script src="/js/master.js"></script>
 </body>
 </html>

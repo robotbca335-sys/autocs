@@ -18,9 +18,99 @@ let settings = {
   processingInterval: 60
 };
 let pipelinePollInterval = null;
+let helpQueueBusy = false;
+
+// ============================================================
+// AUTO SENSOR — status token otomatis (nol-tempel, semua domain)
+// ============================================================
+function loadSensorStatus() {
+  const card = document.getElementById('sensorCard');
+  const badge = document.getElementById('sensorBadge');
+  const detail = document.getElementById('sensorDetail');
+  if (!card) return;
+  fetch(`${API_BASE}/api/settings`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok || !d.settings) return;
+      const s = d.settings.sensor;
+      if (s && s.token_masked) {
+        card.style.display = 'block';
+        badge.textContent = 'AKTIF';
+        badge.className = 'status-badge active';
+        detail.innerHTML = 'Token otomatis terdeteksi: <b>' + s.token_masked + '</b>' +
+          (s.historyToken_masked ? ' · &amp;t= <b>' + s.historyToken_masked + '</b>' : '') +
+          (s.adminUrl ? ' · host: <b>' + s.adminUrl + '</b>' : '') +
+          (s.userid ? ' · userid: <b>' + s.userid + '</b>' : '') +
+          (s.updated_at ? ' · diperbarui: ' + fmtTime(s.updated_at) + ' (otomatis, tanpa tempel)' : '');
+      } else {
+        card.style.display = 'block';
+        badge.textContent = 'Belum Aktif';
+        badge.className = 'status-badge pending';
+        detail.innerHTML = 'Untuk nol-tempel: muat folder <code>sensor/</code> di <b>chrome://extensions</b> (mode Developer → Load unpacked). ' +
+          'Setelah itu buka panel admin idrbo; token akan tersinkron otomatis ke sini — tidak perlu paste/ubah URL, semua domain idrbo.com–idrbo4.com terdeteksi otomatis.';
+      }
+    })
+    .catch(() => {});
+}
+
+// ============================================================
+// AUTO-HELPER: saat /master dibuka, otomatis bantu proses antrian
+// Siapa pun yang membuka master web = worker pipeline otomatis
+// ============================================================
+async function helpProcessQueue() {
+  if (helpQueueBusy) return;
+  const auto = await fetch(`${API_BASE}/api/settings`).then(r => r.json()).catch(() => null);
+  const enabled = !!(auto && auto.settings && auto.settings.auto && auto.settings.auto.enabled);
+  if (!enabled) return;
+  helpQueueBusy = true;
+  try {
+    const r = await fetch(`${API_BASE}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'next' })
+    });
+    const d = await r.json();
+    if (d && d.claim) {
+      const el = $('plQueue');
+      if (el) { const q = parseInt(el.textContent || '0', 10); el.textContent = Math.max(0, q - 1); }
+      if (typeof addPipelineLog === 'function') {
+        addPipelineLog(`Auto-helper diproses ${d.claim.kode_tiket} → ${d.claim.status}`, d.claim.status === 'SESUAI' ? 'ok' : '');
+      }
+    }
+  } catch (_) {}
+  helpQueueBusy = false;
+}
+
+function startQueueHelper() {
+  helpProcessQueue();
+  setInterval(helpProcessQueue, 30000);
+}
+
+// ============================================================
+// MASTER AUTH GATE — wajib login sebelum dashboard tampil
+// ============================================================
+async function checkMasterAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth?action=me`);
+    const data = await res.json();
+    if (data.ok && data.authenticated) {
+      document.body.classList.add('master-authed');
+      const gate = document.getElementById('masterGate');
+      if (gate) gate.style.display = 'none';
+      return true;
+    }
+  } catch (_) {}
+  document.body.classList.remove('master-authed');
+  const st = document.getElementById('gateStatus');
+  if (st) st.textContent = 'Panel terkunci. Silakan login.';
+  const btnGate = document.getElementById('btnGateGoogle');
+  if (btnGate) btnGate.addEventListener('click', googleLogin);
+  return false;
+}
 
 // ===== INITIALIZATION =====
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  const authed = await checkMasterAuth();
   initDashboard();
   initNavigation();
   initClaimsTab();
@@ -32,6 +122,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettingsTab();
   loadDashboard();
   startAutoRefresh();
+  loadSensorStatus();
+  if (authed) startQueueHelper();
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -868,9 +960,382 @@ function renderLogs(logs) {
 }
 
 // ===== SETTINGS TAB =====
+function loadIdrboSettings() {
+  fetch(API_BASE + "/api/settings").then(r => r.json()).then(d => {
+    const accts = (d.ok && d.settings && d.settings.idrbo && Array.isArray(d.settings.idrbo.accounts)) ? d.settings.idrbo.accounts : [];
+    const box = $("idrboAccounts"); if (!box) return;
+    box.innerHTML = "";
+    for (let i = 0; i < Math.max(accts.length, 4); i++) {
+      const a = accts[i] || {};
+      const div = document.createElement("div");
+      div.style.cssText = "background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px";
+      div.innerHTML = 
+        "<div style=\"font-weight:600;margin-bottom:6px\">Akun " + (i+1) + "</div>" +
+        "<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:6px\">" +
+          "<input class=\"idrbo-input\" data-field=\"name\" data-idx=\""+i+"\" placeholder=\"Nama\" value=\""+(a.name||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"adminUrl\" data-idx=\""+i+"\" placeholder=\"URL Dasar Admin\" value=\""+(a.adminUrl||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"token\" data-idx=\""+i+"\" type=\"password\" placeholder=\""+(a.token_masked ? "Header X-Access-Token: "+a.token_masked+" (isi utk ganti)" : "Header X-Access-Token (eyJ...)")+"\" value=\"\">" +
+          "<input class=\"idrbo-input\" data-field=\"historyToken\" data-idx=\""+i+"\" placeholder=\""+(a.historyToken_masked ? "Token API t=: "+a.historyToken_masked+" (isi utk ganti)" : "Token API (&t= dari URL history)")+"\" value=\"\">" +
+          "<input class=\"idrbo-input\" data-field=\"userid\" data-idx=\""+i+"\" placeholder=\"User ID\" value=\""+(a.userid||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"pkid\" data-idx=\""+i+"\" placeholder=\"X-Agent-Pkid\" value=\""+(a.pkid||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"suid\" data-idx=\""+i+"\" placeholder=\"X-Agent-Suid (Site UID)\" value=\""+(a.suid||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"role\" data-idx=\""+i+"\" placeholder=\"X-Agent-Role\" value=\""+(a.role||"")+"\">" +
+          "<input class=\"idrbo-input\" data-field=\"userAgent\" data-idx=\""+i+"\" placeholder=\"X-Agent-User (UA)\" value=\""+(a.userAgent||"")+"\">" +
+        "</div>";
+      box.appendChild(div);
+    }
+  }).catch(function(){});
+}
+function saveIdrboSettings() {
+  const rows = document.querySelectorAll(".idrbo-input");
+  const map = {};
+  rows.forEach(function(inp) {
+    const idx = inp.getAttribute("data-idx");
+    const field = inp.getAttribute("data-field");
+    if (!map[idx]) map[idx] = {};
+    map[idx][field] = inp.value;
+  });
+  const accounts = Object.keys(map).sort().map(function(k) { return map[k]; }).filter(function(a) { return a.name || a.adminUrl; });
+  fetch(API_BASE + "/api/settings", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({key: "idrbo", value: {accounts: accounts}})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    const st = $("idrboStatus");
+    if (d.ok) {
+      if (st) { st.textContent = "Tersimpan!"; st.className = "status-badge approved"; }
+      showToast("IDRBO saved", "ok");
+    } else {
+      if (st) { st.textContent = "Gagal: " + (d.message||""); st.className = "status-badge error"; }
+    }
+  }).catch(function(e) {
+    const st = $("idrboStatus");
+    if (st) { st.textContent = "Error: " + e.message; st.className = "status-badge error"; }
+  });
+}
+
 function initSettingsTab() {
   $('btnSaveSettings').addEventListener('click', saveSettings);
+    loadIdrboSettings();
+    loadDomainsSettings();
+    loadStaffList();
+    $('btnSaveDomains').addEventListener('click', saveDomainsSettings);
+    $('btnAddStaff').addEventListener('click', function() {
+      const email = ($('staffEmailInput').value || '').trim();
+      if (!email) { showToast('Isi email staf dulu', 'error'); return; }
+      saveStaffList(email, true);
+      $('staffEmailInput').value = '';
+    });
+    $('staffEmailInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); $('btnAddStaff').click(); }
+    });
+    $("btnAddIdrbo").addEventListener("click", function() {
+      const box = $("idrboAccounts");
+      const i = box ? box.children.length : 0;
+      const div = document.createElement("div");
+      div.style.cssText = "background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px";
+      div.innerHTML = "<div style=\"font-weight:600;margin-bottom:6px\">Akun " + (i+1) + "</div>" +
+        "<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:6px\">" +
+          "<input class=\"idrbo-input\" data-field=\"name\" data-idx=\""+i+"\" placeholder=\"Nama\">" +
+          "<input class=\"idrbo-input\" data-field=\"adminUrl\" data-idx=\""+i+"\" placeholder=\"URL Dasar Admin\">" +
+          "<input class=\"idrbo-input\" data-field=\"token\" data-idx=\""+i+"\" type=\"password\" placeholder=\"Header X-Access-Token (eyJ...)\" >" +
+          "<input class=\"idrbo-input\" data-field=\"historyToken\" data-idx=\""+i+"\" placeholder=\"Token API (&t= dari URL history)\">" +
+          "<input class=\"idrbo-input\" data-field=\"userid\" data-idx=\""+i+"\" placeholder=\"User ID\">" +
+          "<input class=\"idrbo-input\" data-field=\"pkid\" data-idx=\""+i+"\" placeholder=\"X-Agent-Pkid\">" +
+          "<input class=\"idrbo-input\" data-field=\"suid\" data-idx=\""+i+"\" placeholder=\"X-Agent-Suid (Site UID)\">" +
+          "<input class=\"idrbo-input\" data-field=\"role\" data-idx=\""+i+"\" placeholder=\"X-Agent-Role\">" +
+          "<input class=\"idrbo-input\" data-field=\"userAgent\" data-idx=\""+i+"\" placeholder=\"X-Agent-User (UA)\">" +
+        "</div>";
+      box.appendChild(div);
+    });
+    $("btnSaveIdrbo").addEventListener("click", saveIdrboSettings);
+    $("btnGrabIdrbo").addEventListener("click", function() {
+      const btn = $("btnGrabIdrbo");
+      const busy = $("idrboGrabBusy");
+      const out = $("idrboGrabResult");
+      if (btn) { btn.disabled = true; btn.textContent = "Grabbing..."; }
+      if (busy) { busy.textContent = "Proses..."; busy.className = "status-badge pending"; }
+      if (out) out.innerHTML = "";
+      fetch(API_BASE + "/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({key: "idrboGrab"})
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (btn) { btn.disabled = false; btn.textContent = "Grab Semua"; }
+        if (busy) busy.textContent = "";
+        if (!d.ok) {
+          if (busy) { busy.textContent = "Gagal: " + (d.message||""); busy.className = "status-badge error"; }
+          return;
+        }
+        if (!out) return;
+        var results = (d.grab && Array.isArray(d.grab.results)) ? d.grab.results : [];
+        out.innerHTML = results.map(function(r) {
+          var games = Object.keys(r.admin && r.admin.games ? r.admin.games : {}).map(function(k){ return k + ":" + r.admin.games[k]; }).join(" ");
+          var status = r.ok ? "OK" : "EMPTY";
+          var cls = r.ok ? "approved" : "pending";
+          return "<div class=\"status-badge " + cls + "\" style=\"display:block;margin-bottom:6px;white-space:normal;padding:10px;font-size:13px;background:var(--bg);border:1px solid var(--border)\">" +
+            "<b>" + (r.name||"") + "</b> [" + status + "] " +
+            "trx:" + (r.admin?r.admin.count:0) + " bet:" + (r.admin?r.admin.totalBet:0) + " scatter:" + (r.history?r.history.scatterCount:0) +
+            (games ? " game:{" + games + "}" : "") +
+            (r.admin && r.admin.error ? " <span style=\"color:#ff6b6b\">admin:" + r.admin.error + "</span>" : "") +
+            (r.history && r.history.error ? " <span style=\"color:#ff6b6b\">hist:" + r.history.error + "</span>" : "") +
+            "</div>";
+        }).join("");
+        if (!results.length) out.innerHTML = "<div class=\"status-badge pending\" style=\"display:block;padding:10px\">Belum ada akun. Simpan dulu lalu Grab.</div>";
+      }).catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = "Grab Semua"; }
+        if (busy) { busy.textContent = "Error: " + e.message; busy.className = "status-badge error"; }
+      });
+    });
+    $("btnCekRekIdrbo").addEventListener("click", function() {
+      var userId = prompt("User ID yang ingin dicek:");
+      if (!userId || !userId.trim()) return;
+      var btn = $("btnCekRekIdrbo");
+      var out = $("idrboGrabResult");
+      if (btn) { btn.disabled = true; btn.textContent = "Cek..."; }
+      if (out) out.innerHTML = "<div class=\"status-badge pending\" style=\"display:block;padding:10px\">Memproses Cek Rek " + userId + "...</div>";
+      fetch(API_BASE + "/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({key: "idrboCekRek", value: {userId: userId.trim()}})
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (btn) { btn.disabled = false; btn.textContent = "Cek Rek"; }
+        if (!out) return;
+        if (!d.ok) {
+          out.innerHTML = "<div class=\"status-badge error\" style=\"display:block;padding:10px\">Gagal: " + (d.message || "") + "</div>";
+          return;
+        }
+        var r = d.cekRek || {};
+        if (r.ok) {
+          out.innerHTML = "<div class=\"status-badge approved\" style=\"display:block;padding:10px;font-size:14px;background:var(--bg);border:1px solid var(--border)\">" +
+            "✅ <b>User ID " + userId + "</b> ditemukan di " + (r.domain||"") + "<br>" +
+            "No Rek: <b>" + (r.noRek||"-") + "</b> &nbsp;|&nbsp; Nama: <b>" + (r.nama||"-") + "</b> &nbsp;|&nbsp; Bank: <b>" + (r.bank||"-") + "</b></div>";
+        } else {
+          out.innerHTML = "<div class=\"status-badge error\" style=\"display:block;padding:10px\">❌ User " + userId + ": " + (r.error||"") + "</div>";
+        }
+      }).catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = "Cek Rek"; }
+        if (out) out.innerHTML = "<div class=\"status-badge error\" style=\"display:block;padding:10px\">Error: " + e.message + "</div>";
+      });
+    });
+  loadBonusUi();
+  initBonusEvents();
   loadSettings();
+}
+
+function loadBonusUi() {
+  fetch(`${API_BASE}/api/settings`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok || !d.settings || !d.settings.bonus) return;
+      const bonus = d.settings.bonus;
+      renderBonusSession(bonus);
+      const st = $('bonusAutoStatus');
+      if (st) { st.textContent = bonus.autoDecision ? 'AUTO ON' : 'AUTO OFF'; st.className = 'status-badge ' + (bonus.autoDecision ? 'approved' : ''); }
+      const toggle = $('bonusAutoToggle');
+      if (toggle) toggle.checked = !!bonus.autoDecision;
+    })
+    .catch(() => {});
+}
+
+function renderBonusSession(bonus) {
+  const box = $('bonusStatus');
+  if (!box) return;
+  const loggedIn = !!(bonus && bonus.loggedIn);
+  box.innerHTML = loggedIn
+    ? '<span style="color:#22c55e">✔ Terhubung: <b>' + escapeHtml(bonus.loginEmail || '') + '</b></span>' +
+      (bonus.loginAt ? ' <span style="color:#666">— login ' + new Date(bonus.loginAt).toLocaleString() + ', cookies ' + (bonus.cookies || 0) + '</span>' : '')
+    : '<span style="color:#b88d0a">Belum login. Isi email & password bonussmb di atas.</span>';
+}
+
+function bonusPost(payload) {
+  return fetch(`${API_BASE}/api/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json());
+}
+
+function initBonusEvents() {
+  const btnLogin = $('btnBonusLogin');
+  if (btnLogin) btnLogin.addEventListener('click', function() {
+    const email = ($('bonusEmail').value || '').trim();
+    const pass = $('bonusPass').value || '';
+    if (!email || !pass) { showToast('Isi email & password dulu', 'error'); return; }
+    btnLogin.disabled = true;
+    btnLogin.textContent = 'Login...';
+    const twofa = ($('bonus2fa').value || '').trim();
+    const body = twofa
+      ? { action: 'bonus_2fa', code: twofa }
+      : { action: 'bonus_login', email, password: pass };
+    bonusPost(body).then(d => {
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Login';
+      if (d.ok) {
+        showToast(d.message || 'Login sukses', 'ok');
+        loadBonusUi();
+      } else {
+        showToast('Gagal: ' + (d.message || ''), 'error');
+        if (d.details) console.warn(d.details);
+      }
+    }).catch(e => { btnLogin.disabled = false; btnLogin.textContent = 'Login'; showToast('Error: ' + e.message, 'error'); });
+  });
+
+  const btnLogout = $('btnBonusLogout');
+  if (btnLogout) btnLogout.addEventListener('click', function() {
+    bonusPost({ action: 'bonus_logout' }).then(d => {
+      showToast('Sesi dibersihkan', 'ok');
+      loadBonusUi();
+    });
+  });
+
+  const toggle = $('bonusAutoToggle');
+  if (toggle) toggle.addEventListener('change', function() {
+    fetch(`${API_BASE}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'bonus', value: { autoDecision: toggle.checked } })
+    }).then(r => r.json()).then(d => {
+      if (d.ok) { showToast(toggle.checked ? 'Auto approve/reject ON' : 'Auto approve/reject OFF', 'ok'); loadBonusUi(); }
+      else { toggle.checked = !toggle.checked; showToast('Gagal', 'error'); }
+    });
+  });
+
+  const btnList = $('btnBonusList');
+  if (btnList) btnList.addEventListener('click', loadBonusTickets);
+}
+
+function loadBonusTickets() {
+  const btn = $('btnBonusList');
+  const status = $('bonusListStatus');
+  const out = $('bonusTickets');
+  if (btn) { btn.disabled = true; btn.textContent = 'Memuat...'; }
+  if (status) { status.textContent = 'Memuat...'; status.className = 'status-badge pending'; }
+  bonusPost({ action: 'bonus_list', status: '' }).then(d => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Refresh Ticket (bonussmb)'; }
+    if (!d.ok) {
+      if (status) { status.textContent = (d.message || 'Gagal'); status.className = 'status-badge error'; }
+      return;
+    }
+    if (status) status.textContent = '';
+    const rows = d.rows || [];
+    if (!out) return;
+    if (!rows.length) {
+      out.innerHTML = '<div class="status-badge approved" style="display:block;padding:10px">Tidak ada ticket di bonussmb saat ini.</div>';
+      return;
+    }
+    out.innerHTML = rows.slice(0, 50).map(t => {
+      const code = t.ticketCode || t.code || t.ticket_code || t.invoice || t.no || t.kode_tiket || '';
+      const base = escapeHtml(String(code || t.id || '').slice(0, 42));
+      const st2 = String(t.status || '');
+      const uid = t.userId || t.user_id || t.userid || '';
+      const cls = st2 === 'approved' ? 'approved' : st2 === 'rejected' ? 'error' : 'pending';
+      return '<div class="status-badge ' + cls + '" style="display:block;margin-bottom:6px;white-space:normal;padding:8px;font-size:12.5px;background:var(--bg);border:1px solid var(--border);line-height:1.5">' +
+        '<b>' + base + '</b> <span style="opacity:.75">[' + escapeHtml(st2 || '?') + ']</span>' +
+        (uid ? ' <span style="opacity:.6">user:' + escapeHtml(String(uid).slice(0, 24)) + '</span>' : '') +
+        '<span style="float:right">' +
+        '<button class="btn-gold" style="padding:3px 10px;font-size:11px;background:#198754;border-color:#146c43" data-bid="' + (t.id||'') + '" data-ok="approve">Approve</button> ' +
+        '<button class="btn-gold" style="padding:3px 10px;font-size:11px;background:#dc3545;border-color:#bb2d3b" data-bid="' + (t.id||'') + '" data-ok="reject">Reject</button>' +
+        '</span>' +
+        (t.reason ? '<div style="opacity:.6;font-size:11px;margin-top:2px">alasan: ' + escapeHtml(String(t.reason).slice(0, 80)) + '</div>' : '') +
+        '</div>';
+    }).join('') + (rows.length > 50 ? '<div style="opacity:.6;font-size:12px;margin-top:6px">… dan ' + (rows.length - 50) + ' lagi</div>' : '');
+    out.querySelectorAll('button[data-bid]').forEach(b => {
+      b.addEventListener('click', function() {
+        const id = b.getAttribute('data-bid');
+        const isApprove = b.getAttribute('data-ok') === 'approve';
+        let reason = '';
+        if (!isApprove) {
+          reason = prompt('Alasan penolakan:');
+          if (reason === null) return;
+        }
+        b.disabled = true;
+        bonusPost({ action: isApprove ? 'bonus_approve' : 'bonus_reject', id, reason }).then(d2 => {
+          showToast(d2.ok ? 'OK: ' + (d2.message || '') : 'Gagal: ' + (d2.message || ''), d2.ok ? 'ok' : 'error');
+          loadBonusTickets();
+        }).catch(e => { b.disabled = false; showToast('Error: ' + e.message, 'error'); });
+      });
+    });
+  }).catch(e => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Refresh Ticket (bonussmb)'; }
+    if (status) { status.textContent = 'Error: ' + e.message; status.className = 'status-badge error'; }
+  });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function loadDomainsSettings() {
+  fetch(`${API_BASE}/api/settings`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok && d.settings && d.settings.idrboDomains) {
+        $('idrboDomains').value = d.settings.idrboDomains.join(', ');
+      }
+    })
+    .catch(() => {});
+}
+
+function saveDomainsSettings() {
+  const raw = ($('idrboDomains').value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const st = $('idrboDomainsStatus');
+  fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'idrboDomains', value: { domains: raw } })
+  }).then(r => r.json()).then(d => {
+    if (st) { st.textContent = d.ok ? 'Tersimpan (' + (d.settings && d.settings.idrboDomains || []).length + ' domain)' : 'Gagal'; st.className = 'status-badge ' + (d.ok ? 'approved' : 'error'); }
+    if (d.ok) showToast('Daftar domain tersimpan', 'ok');
+  }).catch(e => { if (st) { st.textContent = 'Error: ' + e.message; st.className = 'status-badge error'; } });
+}
+
+function renderStaffList(emails) {
+  const box = $('staffList');
+  if (!box) return;
+  const list = Array.isArray(emails) ? emails : [];
+  box.innerHTML = list.length ? list.map(function(email) {
+    return '<div class="status-badge" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:8px 10px;background:var(--bg);border:1px solid var(--border)">' +
+      '<span>' + email + '</span>' +
+      '<button class="btn-gold" style="background:#dc3545;border-color:#bd2130;padding:3px 10px" data-del-staff="' + encodeURIComponent(email) + '">Hapus</button>' +
+    '</div>';
+  }).join('') : '<div class="empty-text">Belum ada staf. Tambahkan email Google di atas.</div>';
+  box.querySelectorAll('[data-del-staff]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const email = decodeURIComponent(btn.getAttribute('data-del-staff'));
+      saveStaffList(email, false);
+    });
+  });
+}
+
+function loadStaffList() {
+  fetch(`${API_BASE}/api/settings`)
+    .then(r => r.json())
+    .then(d => {
+      const emails = d.ok && d.settings && d.settings.admin ? d.settings.admin.allowed_emails : [];
+      renderStaffList(emails);
+    })
+    .catch(() => {});
+}
+
+function saveStaffList(email, add) {
+  const body = add
+    ? { key: 'staff', value: { email: email, add: true } }
+    : { key: 'staff', value: { email: email, add: false } };
+  fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      showToast(add ? 'Staf ditambahkan' : 'Staf dihapus', 'ok');
+      loadStaffList();
+    } else {
+      showToast('Gagal: ' + (d.message || ''), 'error');
+    }
+  }).catch(() => {});
 }
 
 function loadSettings() {

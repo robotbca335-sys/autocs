@@ -1,6 +1,6 @@
 const { fetchNextPipelineClaim, updateClaim, addLog, fetchAllClaims, fetchClaimByCode, fetchClaimById } = require('../../lib/supabase');
 const { sendAlert } = require('../../services/alert');
-const { verifyClaimAuto, verifyClaimManual, submitBonusTicket, checkBonusStatus, buildVerifyFields, sleep } = require('../../services/pipeline');
+const { verifyClaimAuto, verifyClaimManual, submitBonusTicket, checkBonusStatus, buildVerifyFields, pushDecisionToBonus, sleep } = require('../../services/pipeline');
 const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
 const bucket = createTokenBucket({ windowMs: 60000, max: 150 });
 
@@ -34,7 +34,10 @@ async function runOneTick(manual = null) {
     });
     await sendAlert('BET_VERIFIED', { kode_tiket: claim.kode_tiket, user_id: claim.user_id });
     await addLog('PIPELINE_OK', `Claim ${claim.kode_tiket} SESUAI (${result.mode})`, fields);
-    return { ok: true, claim: updated, result };
+    const push = await pushDecisionToBonus(claim, 'SESUAI');
+    if (push.ok) await addLog('BONUS_PUSH', `Approve bonussmb → ${claim.kode_tiket}`);
+    else if (push.code && push.code !== 'DISABLED') await addLog('BONUS_PUSH', `Approve ${claim.kode_tiket} GAGAL: ${push.code} ${push.message || ''}`);
+    return { ok: true, claim: updated, result, bonusPush: push };
   }
 
   if (result.status === 'TIDAK_SESUAI') {
@@ -43,7 +46,10 @@ async function runOneTick(manual = null) {
     });
     await sendAlert('CLAIM_REJECTED', { kode_tiket: claim.kode_tiket, user_id: claim.user_id, reason: result.reason });
     await addLog('PIPELINE_GAGAL', `Claim ${claim.kode_tiket} TIDAK SESUAI: ${result.reason} (${result.mode})`, fields);
-    return { ok: true, claim: updated, result };
+    const push = await pushDecisionToBonus(claim, 'TIDAK_SESUAI', result.reason);
+    if (push.ok) await addLog('BONUS_PUSH', `Reject bonussmb → ${claim.kode_tiket}`);
+    else if (push.code && push.code !== 'DISABLED') await addLog('BONUS_PUSH', `Reject ${claim.kode_tiket} GAGAL: ${push.code} ${push.message || ''}`);
+    return { ok: true, claim: updated, result, bonusPush: push };
   }
 
   // ERROR (NO_TOKEN / NOT_FOUND / FETCH_FAIL / INVALID_OPERATOR_SESSION)
@@ -90,6 +96,57 @@ module.exports = wrapWithRateLimit(async (req, res) => {
       // poles kode_tiket agar jawaban konsisten
       const claim = { ...result.claim };
       return res.status(200).json({ ok: true, claim, result: result.result });
+    }
+
+    if (action === 'relax_check') {
+      const { fetchRelaxLogs, fetchRelaxRows, updateRelaxRow, addRelaxLog } = require('../../lib/supabase');
+      const id = req.body.id;
+      const rowId = req.body.rowId || id;
+      if (!rowId) return res.status(400).json({ ok: false, message: 'id row wajib' });
+      const list = await fetchRelaxRows({ search: '', status: '', page: 1, limit: 1000 });
+      const row = (list.data || []).find(r => String(r.id) === String(rowId));
+      if (!row) return res.status(200).json({ ok: false, message: 'Row tidak ditemukan: ' + rowId });
+
+      const claim = {
+        id: row.id,
+        user_id: row.user || '',
+        kode_tiket: row.kodeTiket || '',
+        betting: parseFloat(String(row.betting || '').replace(/[^0-9.]/g, '')) || null,
+        scatter: row.payout ? parseInt(String(row.payout).replace(/[^0-9]/g, '')) || null : null,
+        created_at: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString()
+      };
+
+      if (!claim.kode_tiket) return res.status(200).json({ ok: false, message: 'Kode tiket kosong' });
+
+      // 2x-check: retry sekali bila error/fetch gagal
+      let result = await verifyClaimAuto(claim);
+      if ((result.status === 'ERROR' || result.code === 'DATA_NOT_FOUND' || result.code === 'NO_TOKEN') && (row.autoRetryCheck || 0) < 1) {
+        await sleep(1200);
+        result = await verifyClaimAuto(claim);
+        await updateRelaxRow(rowId, { autoRetryCheck: 1 });
+      }
+
+      let patch = {
+        autoStatus: result.status === 'SESUAI' ? 'APPROVED' : result.status === 'TIDAK_SESUAI' ? 'REJECTED' : '',
+        manualStatus: '',
+        autoCol9: String(result.autoCol9 || result.detail || result.reason || ''),
+        autoCol10: String(result.autoCol10 || result.reason || result.detail || result.error || result.status || ''),
+        betting: result.actual && result.actual.bet != null ? String(result.actual.bet) : (row.betting || ''),
+        payout: result.actual && result.actual.scatter != null ? String(result.actual.scatter) : (row.payout || ''),
+        totalFreeSpin: result.actual && result.actual.freeSpin != null ? String(result.actual.freeSpin) : (row.totalFreeSpin || '')
+      };
+
+      const updated = await updateRelaxRow(rowId, patch);
+      await addRelaxLog('CHECK #' + rowId + ' ' + (updated.kodeTiket || '') + ' -> ' + result.status + (result.reason ? ' · ' + result.reason : ''), result.status === 'ERROR' ? 'error' : result.status === 'TIDAK_SESUAI' ? 'warn' : 'ok');
+
+      // Auto push keputusan ke bonussmb bila aktif (SESUAI -> approve, TIDAK_SESUAI -> reject)
+      if (result.status === 'SESUAI' || result.status === 'TIDAK_SESUAI') {
+        const push = await pushDecisionToBonus(claim, result.status, result.reason);
+        if (push.ok) await addRelaxLog('BONUS_PUSH #' + rowId + ' ' + result.status, 'ok');
+        else if (push.code && push.code !== 'DISABLED') await addRelaxLog('BONUS_PUSH #' + rowId + ' GAGAL: ' + push.code + ' ' + (push.message || ''), 'warn');
+        return res.status(200).json({ ok: true, row: updated, result, mode: 'auto', bonusPush: push });
+      }
+      return res.status(200).json({ ok: true, row: updated, result, mode: 'auto' });
     }
 
     if (action === 'bonus_submit') {
