@@ -2,7 +2,69 @@ const { fetchNextPipelineClaim, updateClaim, addLog, fetchAllClaims, fetchClaimB
 const { sendAlert } = require('../../services/alert');
 const { verifyClaimAuto, verifyClaimManual, submitBonusTicket, checkBonusStatus, buildVerifyFields, pushDecisionToBonus, sleep } = require('../../services/pipeline');
 const { createTokenBucket, wrapWithRateLimit } = require('../../lib/rate-limit');
+const { parseCookies, verifySession } = require('../../lib/auth-handler');
 const bucket = createTokenBucket({ windowMs: 60000, max: 150 });
+
+const AI_ENDPOINTS = {
+  groq: {
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    headers: () => ({
+      'Authorization': 'Bearer ' + (process.env.GROQ_API_KEY || ''),
+      'Content-Type': 'application/json'
+    }),
+    missing: 'GROQ_API_KEY belum di-set'
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    headers: () => ({
+      'Authorization': 'Bearer ' + (process.env.OPENROUTER_API_KEY || ''),
+      'HTTP-Referer': process.env.SITE_URL || 'https://auto-relax-aa.app',
+      'X-Title': 'AUTO RELAX by AA',
+      'Content-Type': 'application/json'
+    }),
+    missing: 'OPENROUTER_API_KEY belum di-set'
+  }
+};
+
+async function proxyAi(req, res) {
+  const cookies = parseCookies(req);
+  if (!verifySession(cookies.adm_session || '')) {
+    return res.status(401).json({ ok: false, message: 'Belum login' });
+  }
+  const provider = String(req.body.provider || '').toLowerCase();
+  const payload = req.body.payload || {};
+  let url, headers;
+
+  if (provider === 'gemini') {
+    const key = process.env.GEMINI_API_KEY || '';
+    if (!key) return res.status(503).json({ ok: false, message: 'GEMINI_API_KEY belum di-set' });
+    url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key;
+    headers = { 'Content-Type': 'application/json' };
+  } else {
+    const ep = AI_ENDPOINTS[provider];
+    if (!ep) return res.status(400).json({ ok: false, message: 'provider tidak dikenal' });
+    if (!process.env[provider === 'groq' ? 'GROQ_API_KEY' : 'OPENROUTER_API_KEY']) {
+      return res.status(503).json({ ok: false, message: ep.missing });
+    }
+    url = ep.url;
+    headers = ep.headers();
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  } catch (_) {
+    return res.status(502).json({ ok: false, message: 'Gagal menghubungi provider' });
+  }
+
+  const text = await upstream.text();
+  if (!upstream.ok) {
+    return res.status(upstream.status).json({ ok: false, message: 'HTTP ' + upstream.status + ': ' + text.slice(0, 500) });
+  }
+  let data;
+  try { data = JSON.parse(text); } catch (_) { return res.status(502).json({ ok: false, message: 'Respons provider invalid' }); }
+  return res.status(200).json({ ok: true, data });
+}
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -70,6 +132,10 @@ module.exports = wrapWithRateLimit(async (req, res) => {
 
   try {
     const { action, kode_tiket } = req.body || {};
+
+    if (action === 'ai') {
+      return proxyAi(req, res);
+    }
 
     if (action === 'verify') {
       if (!kode_tiket) return res.status(400).json({ ok: false, message: 'kode_tiket required' });

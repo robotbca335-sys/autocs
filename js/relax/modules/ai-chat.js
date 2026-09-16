@@ -66,10 +66,10 @@ export function initAIChat() {
 }
 
 async function aiProxy(providerName, payload) {
-  const res = await fetch('/api/ai', {
+  const res = await fetch('/api/process', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: providerName, payload: payload })
+    body: JSON.stringify({ action: 'ai', provider: providerName, payload: payload })
   });
   const out = await res.json().catch(function () { return { ok: false, message: 'Respons invalid' }; });
   if (!out.ok) throw new Error(out.message || ('HTTP ' + res.status));
